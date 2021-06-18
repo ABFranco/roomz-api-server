@@ -1,4 +1,4 @@
-// The client package is a utility package for testing using a similated gRPC
+// The client package is a utility package for testing using a simulated gRPC
 // client.
 package client
 
