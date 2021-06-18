@@ -17,6 +17,6 @@ func main() {
 
   server := server.NewRoomzApiServer()
   if err := server.Serve(lis); err != nil {
-    log.Fatalf("Failed to serve: %v",)
+    log.Fatalf("Failed to serve: %v", err)
   }
 }

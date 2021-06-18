@@ -1,6 +1,9 @@
-// this file performs events on randomized objects (such as a unique log-in, etc.)
+// A part of the client utility package, this file offers other utility
+// functions like performing events on randomized objects (such as a unique
+// log-in, etc.).
 //
-// each exported function is dependent upon adequate unit tests of gRPC functionality
+// Each exported function is dependent upon adequate unit tests of gRPC
+// functionality.
 package client
 
 import (
@@ -10,6 +13,9 @@ import (
 	rpb "github.com/ABFranco/roomz-proto/go_proto"
 )
 
+
+// CreateRandomAccount creates a random Account object, and returns a
+// CreateAccountRequest and CreateAccountResponse object.
 func CreateRandomAccount(client rpb.RoomzApiServiceClient) (*rpb.CreateAccountRequest, *rpb.CreateAccountResponse) {
 	req := &rpb.CreateAccountRequest{
     FirstName: "xm",
@@ -21,6 +27,9 @@ func CreateRandomAccount(client rpb.RoomzApiServiceClient) (*rpb.CreateAccountRe
   return req, resp
 }
 
+
+// RandUserSignIn creates a random Account object and signs into the newly
+// created Account. It returns a SignInResponse object.
 func RandUserSignIn(client rpb.RoomzApiServiceClient) (*rpb.SignInResponse) {
   createAccountReq, _ := CreateRandomAccount(client)
   req := &rpb.SignInRequest{
@@ -31,6 +40,8 @@ func RandUserSignIn(client rpb.RoomzApiServiceClient) (*rpb.SignInResponse) {
   return resp
 }
 
+// RandRoomCreate creates a new Room and returns a CreateRoomRequest obeject
+// and CreateRoomResponse object.
 func RandRoomCreate(signInResp *rpb.SignInResponse, isStrict bool, client rpb.RoomzApiServiceClient) (*rpb.CreateRoomRequest, *rpb.CreateRoomResponse) {
   req := &rpb.CreateRoomRequest{
     UserId:   signInResp.GetUserId(),
