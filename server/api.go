@@ -1,3 +1,4 @@
+// The file hosts all Roomz API logic, a part of the server package.
 package server
 
 import (
@@ -35,6 +36,7 @@ func (r *roomzApiService) CreateAccount(ctx context.Context, req *rpb.CreateAcco
   log.Printf(":CreateAccount: Received data=%v", req)
   resp := &rpb.CreateAccountResponse{}
   tx := r.RDB.Begin()
+
   if len(req.Email) == 0 {
     rollbackTx(tx)
     return nil, status.Error(codes.Unauthenticated, "Invalid email, needs to be nonempty.")
@@ -43,11 +45,13 @@ func (r *roomzApiService) CreateAccount(ctx context.Context, req *rpb.CreateAcco
     rollbackTx(tx)
     return nil, status.Error(codes.Unauthenticated, "Invalid password, needs to be nonempty.")
   }
+
   account, res := r.RDB.GetAccount(tx, req.Email)
   if res != gorm.ErrRecordNotFound {
     rollbackTx(tx)
     return nil, status.Error(codes.Internal, "An account already exists with this email!")
   }
+
   var user models.User
   fullName := fmt.Sprintf("%s %s", req.FirstName, req.LastName)
   user.Name.String = fullName
@@ -56,6 +60,7 @@ func (r *roomzApiService) CreateAccount(ctx context.Context, req *rpb.CreateAcco
     rollbackTx(tx)
     return nil, status.Error(codes.Internal, "Internal server error.")
   }
+
   account = models.Account{
     UserId:    user.Id,
     Email:     req.Email,
@@ -84,6 +89,7 @@ func (r *roomzApiService) SignIn(ctx context.Context, req *rpb.SignInRequest) (*
   log.Printf(":SignIn: Received data=%v", req)
   resp := &rpb.SignInResponse{}
   tx := r.RDB.Begin()
+
   if len(req.Email) == 0 {
     rollbackTx(tx)
     return nil, status.Error(codes.Unauthenticated, "Invalid email, must be nonempty.")
@@ -92,6 +98,7 @@ func (r *roomzApiService) SignIn(ctx context.Context, req *rpb.SignInRequest) (*
     rollbackTx(tx);
     return nil, status.Error(codes.Unauthenticated, "Invalid password, must be nonempty.")
   }
+
   var account models.Account
   var err error
   if account, err = r.RDB.GetAccount(tx, req.Email);  err == gorm.ErrRecordNotFound {
@@ -102,6 +109,7 @@ func (r *roomzApiService) SignIn(ctx context.Context, req *rpb.SignInRequest) (*
     rollbackTx(tx)
     return nil, status.Error(codes.Unauthenticated, "Incorrect password, try again!")
   }
+
   resp = &rpb.SignInResponse{
     Success: true,
     UserId: uint32(account.Id),
@@ -144,6 +152,7 @@ func (r *roomzApiService) EditAccountEmail(ctx context.Context, req *rpb.EditAcc
 func (r *roomzApiService) EditAccountPassword(ctx context.Context, req *rpb.EditAccountPasswordRequest) (*rpb.EditAccountPasswordResponse, error) {
   log.Printf(":EditAccountPassword: Received data=%v", req)
   tx := r.RDB.Begin()
+
   if len(req.Email) == 0 {
     rollbackTx(tx)
     return nil, status.Error(codes.Unauthenticated, "Invalid email, must be nonempty.")
@@ -152,6 +161,7 @@ func (r *roomzApiService) EditAccountPassword(ctx context.Context, req *rpb.Edit
     rollbackTx(tx)
     return nil, status.Error(codes.Unauthenticated, "Invalid password, must be nonempty.")
   }
+
   account, err := r.RDB.GetAccount(tx, req.Email)
   if err == gorm.ErrRecordNotFound {
     rollbackTx(tx)
@@ -165,6 +175,7 @@ func (r *roomzApiService) EditAccountPassword(ctx context.Context, req *rpb.Edit
     rollbackTx(tx)
     return nil, status.Error(codes.Unauthenticated, "New password must be nonempty.")
   }
+
   err = r.RDB.EditAccountPassword(tx, req.Email, req.NewPassword)
   if err == gorm.ErrRecordNotFound {
     rollbackTx(tx)
@@ -182,6 +193,7 @@ func (r *roomzApiService) CreateRoom(ctx context.Context, req *rpb.CreateRoomReq
   log.Printf(":CreateRoom: Received data=%v", req)
   resp := &rpb.CreateRoomResponse{}
   tx := r.RDB.Begin()
+
   if len(req.UserName) == 0 {
     rollbackTx(tx)
     return nil, status.Error(codes.Unauthenticated, "Invalid username, must be nonempty.")
@@ -205,7 +217,7 @@ func (r *roomzApiService) CreateRoom(ctx context.Context, req *rpb.CreateRoomReq
     return nil, status.Error(codes.Internal, "Failed to create room.")
   }
   log.Printf(":CreateRoom: Created new room. Id=%v", room.Id)
-  // TODO: convert userId to type uint32.
+  // TODO: Convert userId to type uint32.
   userIdStr := strconv.Itoa(int(req.UserId))
   if _, err = r.RDB.GetUser(tx, userIdStr); err == gorm.ErrRecordNotFound {
     rollbackTx(tx)
@@ -221,6 +233,7 @@ func (r *roomzApiService) CreateRoom(ctx context.Context, req *rpb.CreateRoomReq
     return nil, status.Error(codes.Internal, err.Error())
   }
   log.Printf(":CreateRoom: Created new RoomUser: %v", roomUser)
+
   tkn := r.createRoomToken(uint32(room.Id), req.UserId)
   resp = &rpb.CreateRoomResponse{
     Success: true,
@@ -250,7 +263,7 @@ func (r *roomzApiService) AwaitRoomClosure(req *rpb.AwaitRoomClosureRequest, clo
   r.RoomCloseStreams[req.RoomId] = append(r.RoomCloseStreams[req.RoomId], userCloseChannel)
   r.closeStreamsMtx.Unlock()
 
-  // TODO: on a HostClosedRoom message, do I need to send some sort of signal to chatChannel to end the stream properly?
+  // TODO: On a HostClosedRoom message, do I need to send some sort of signal to chatChannel to end the stream properly?
   for {
     select {
     case <-closeStream.Context().Done():
@@ -262,29 +275,26 @@ func (r *roomzApiService) AwaitRoomClosure(req *rpb.AwaitRoomClosureRequest, clo
 }
 
 
-// CloseRoom 
+// CloseRoom checks if a room exists and is active, and if so sets as inactive,
+// emits a message on the RoomClosure gRPC stream, and then closes all room
+// streams.
 func (r *roomzApiService) CloseRoom(ctx context.Context, req *rpb.CloseRoomRequest) (*rpb.CloseRoomResponse, error) {
   log.Printf(":CloseRoom: Received data=%v", req)
   resp := &rpb.CloseRoomResponse{}
   tx := r.RDB.Begin()
 
-  var err error
   roomId := req.GetRoomId()
-
-  // retreive room to close
+  var err error
   var room models.Room
   if room, err = r.RDB.GetRoom(tx, fmt.Sprintf("%v", roomId)); err == gorm.ErrRecordNotFound {
     rollbackTx(tx)
     return nil, status.Error(codes.Internal, "Room does not exist!")
   }
 
-  // check if room is inactive
   if !room.IsActive {
     rollbackTx(tx)
     return nil, status.Error(codes.Internal, "Room is already closed!")
   }
-
-  // mark room as inactive (closed)
   room.IsActive = false
   if tx != nil {
     tx.Save(&room)
@@ -295,8 +305,6 @@ func (r *roomzApiService) CloseRoom(ctx context.Context, req *rpb.CloseRoomReque
     Success: true,
     ErrorMessage: "",
   }
-
-  // send room closure notification to all room streams
   r.broadcastHostClosedRoom(roomId, &rpb.HostClosedRoom{})
   r.deleteRoomStreams(roomId)
   log.Printf(":CloseRoom: Emitting HostClosedRoom message to all RoomCloseStreams")
@@ -304,9 +312,13 @@ func (r *roomzApiService) CloseRoom(ctx context.Context, req *rpb.CloseRoomReque
   return resp, nil
 }
 
+
+// JoinRoom handles users joining strict or non-strict rooms. If strict, a
+// JoinRoomRequest object is sent to the host. If not, a new RoomUser is
+// created with the room's current chat history sent back to the requestor. 
 func (r *roomzApiService) JoinRoom(req *rpb.JoinRoomRequest, joinRoomStream rpb.RoomzApiService_JoinRoomServer) (error) {
   log.Printf(":JoinRoom: Received data=%v", req)
-  // TODO: break this function into smaller pieces
+  // TODO: Break this function into smaller pieces.
   resp := &rpb.JoinRoomResponse{}
   tx := r.RDB.Begin()
 
@@ -317,20 +329,17 @@ func (r *roomzApiService) JoinRoom(req *rpb.JoinRoomRequest, joinRoomStream rpb.
   userName := req.GetUserName()
   isGuest := req.GetIsGuest()
 
-  // check if room exists
   var room models.Room
   if room, err = r.RDB.GetRoom(tx, fmt.Sprintf("%v", roomId)); err == gorm.ErrRecordNotFound {
     resp.Status = "reject"
     return status.Error(codes.Internal, "Room does not exist!")
   }
 
-  // verify passwords match
   if room.Password != roomPassword {
     rollbackTx(tx)
     return status.Error(codes.Unauthenticated, "Incorrect Room Password!")
   }
 
-  // verify room is active
   if !room.IsActive {
     rollbackTx(tx)
     return status.Error(codes.Internal, "Room is no longer active!")
@@ -348,14 +357,15 @@ func (r *roomzApiService) JoinRoom(req *rpb.JoinRoomRequest, joinRoomStream rpb.
   serverError := false
   var user models.User
   if isGuest {
-    // create fresh user
+    // Create a new User for the guest.
     if serverError = r.RDB.CreateUser(tx, &user) != nil; serverError {
       rollbackTx(tx)
       return status.Error(codes.Internal, "Internal server error.")
     }
     log.Printf(":JoinRoom: Created new User=%v", user)
     
-    // create guest
+    // Create a Guest.
+    // TODO: Is the Guest object needed?
     var guest models.Guest
     guest.UserId = user.Id
     if serverError = r.RDB.CreateGuest(tx, &guest) != nil; serverError {
@@ -374,12 +384,9 @@ func (r *roomzApiService) JoinRoom(req *rpb.JoinRoomRequest, joinRoomStream rpb.
     }
   }
 
-  // handle strict room
   if room.IsStrict {
     resp.Status = "wait"
-
-    // add user to pending join requests for room
-    // TODO: eliminate session ID
+    // TODO: Eliminate session ID.
     roomJoinRequest := models.RoomJoinRequest{
       RoomId:    room.Id,
       UserId:    user.Id,
@@ -391,12 +398,9 @@ func (r *roomzApiService) JoinRoom(req *rpb.JoinRoomRequest, joinRoomStream rpb.
       return status.Error(codes.Internal, err.Error())
     }
     log.Printf(":JoinRoom: Created RoomJoinRequest=%v", roomJoinRequest)
-
-    // NOTE: old implementation sent "incomingJoinRequest" notification to host. Keep it live?
   } else {
-    // non-strict room
+    // In a Non-strict room.
 
-    // create new RoomUser
     curTime := time.Now()
     roomUser := models.RoomUser{
       RoomId:   room.Id,
@@ -409,7 +413,7 @@ func (r *roomzApiService) JoinRoom(req *rpb.JoinRoomRequest, joinRoomStream rpb.
       return status.Error(codes.Internal, "Internal server error.")
     }
 
-    // create activity message
+    // Log an activity message for the event.
     activityMessageString := fmt.Sprintf("%v has joined the room", roomUser)
     activityMessage := models.Message{
       RoomId:        room.Id,
@@ -423,15 +427,15 @@ func (r *roomzApiService) JoinRoom(req *rpb.JoinRoomRequest, joinRoomStream rpb.
       rollbackTx(tx)
       return status.Error(codes.Internal, "Internal server error.")
     }
-    // retrieve chatroom messages
+    // Add current chat room history to the response.
     roomChatHistory := r.RDB.GetRoomChatMessages(tx, fmt.Sprintf("%v", roomId))
     log.Printf(":JoinRoom: Retrieved chatroom history=%v", roomChatHistory)
-	resp.ChatHistory = roomChatHistory
-	resp.Token = r.createRoomToken(uint32(room.Id), userId)
+    resp.ChatHistory = roomChatHistory
+    resp.Token = r.createRoomToken(uint32(room.Id), userId)
   }
   commitTx(tx)
   
-  // create join room stream if not already created
+  // Create join room stream if not already created.
   joinRoomChannel := make(chan *rpb.JoinRoomResponse)
   joinKey := fmt.Sprintf("%v-%v", roomId, resp.GetUserId())
 
@@ -439,7 +443,7 @@ func (r *roomzApiService) JoinRoom(req *rpb.JoinRoomRequest, joinRoomStream rpb.
   r.RoomJoinStreams[joinKey] = joinRoomChannel
   r.joinStreamsMtx.Unlock()
 
-  // send response to stream
+  // Emit response on the JoinRoom gRPC stream.
   log.Printf(":JoinRoom: resp=%v", resp)
   go func() { joinRoomChannel <- resp }()
 
@@ -455,6 +459,7 @@ func (r *roomzApiService) JoinRoom(req *rpb.JoinRoomRequest, joinRoomStream rpb.
 }
 
 
+// LeaveRoom deletes a RoomUser from a valid room.
 func (r *roomzApiService) LeaveRoom(ctx context.Context, req *rpb.LeaveRoomRequest) (*rpb.LeaveRoomResponse, error) {
   log.Printf(":LeaveRoom: Received data=%v", req)
   resp := &rpb.LeaveRoomResponse{}
@@ -487,13 +492,14 @@ func (r *roomzApiService) LeaveRoom(ctx context.Context, req *rpb.LeaveRoomReque
 }
 
 
+// EnterChatRoom opens a fresh EnterChatRoom gRPC stream for a user to receive
+// chat room messages on.
 func (r *roomzApiService) EnterChatRoom(req *rpb.EnterChatRoomRequest, chatStream rpb.RoomzApiService_EnterChatRoomServer) (error) {
   log.Printf(":EnterChatRoom: Received data=%v", req)
   if !r.verifyToken(req.GetToken()) {
     return status.Error(codes.Unauthenticated, "invalid token")
   }
 
-  // create new chat message channel associated with room Id
   chatChannel := make(chan *rpb.ChatMessage)
   userId := req.GetUserId()
   userChatChannel := roomUserChatChannel{userId: userId, channel: chatChannel}
@@ -514,6 +520,8 @@ func (r *roomzApiService) EnterChatRoom(req *rpb.EnterChatRoomRequest, chatStrea
 }
 
 
+// SendChatMessage creates a new Message object which is sent on the Room chat
+// channel.
 func (r *roomzApiService) SendChatMessage(ctx context.Context, req *rpb.ChatMessage) (*rpb.SendChatMessageResponse, error) {
   log.Printf(":CreateAccount: Received data=%v", req)
   resp := &rpb.SendChatMessageResponse{}
@@ -522,7 +530,7 @@ func (r *roomzApiService) SendChatMessage(ctx context.Context, req *rpb.ChatMess
   var err error
   var room models.Room
 
-  // TODO: edit GetRoom() calls to use standard uint32 type
+  // TODO: Edit GetRoom() calls to use standard uint32 type.
   roomId := fmt.Sprintf("%v", req.GetRoomId())
   userId := fmt.Sprintf("%v", req.GetUserId())
   if room, err = r.RDB.GetRoom(tx, roomId); err == gorm.ErrRecordNotFound {
@@ -530,7 +538,6 @@ func (r *roomzApiService) SendChatMessage(ctx context.Context, req *rpb.ChatMess
     return nil, status.Error(codes.Unauthenticated, "room not found with associated room_id")
   }
 
-  // retrieve user from room
   var roomUser models.RoomUser
   if roomUser, err = r.RDB.GetRoomUser(tx, roomId, userId); err == gorm.ErrRecordNotFound {
     errMsg := fmt.Sprintf("failed to find user with user_id=%v in room_id=%v", req.GetUserId(), req.GetRoomId())
@@ -538,7 +545,6 @@ func (r *roomzApiService) SendChatMessage(ctx context.Context, req *rpb.ChatMess
     return nil, status.Error(codes.Internal, errMsg)
   }
 
-  // create message object
   messageTimestamp := time.Now()
   chatroomMessage := models.Message{
     RoomId:        room.Id,
@@ -560,10 +566,13 @@ func (r *roomzApiService) SendChatMessage(ctx context.Context, req *rpb.ChatMess
   commitTx(tx)
 
   log.Printf(":SendChatMessage: Broadcasting chat to room")
+  // Emit the chat message on the room chat channel.
   go r.broadcastChatToRoom(req)
   return resp, nil
 }
 
+
+// GetJoinRequests returns all RoomJoinRequests for a given roomId.
 func (r *roomzApiService) GetJoinRequests(ctx context.Context, req *rpb.GetJoinRequestsRequest) (*rpb.GetJoinRequestsResponse, error) {
   log.Printf(":CreateAccount: Received data=%v", req)
   resp := &rpb.GetJoinRequestsResponse{}
@@ -588,6 +597,8 @@ func (r *roomzApiService) GetJoinRequests(ctx context.Context, req *rpb.GetJoinR
 }
 
 
+// HandleJoinRequest makes a decision to accept or reject a given
+// RoomJoinRequest object, and sends the response to the requesting user.
 func (r *roomzApiService) HandleJoinRequest(ctx context.Context, req *rpb.HandleJoinRequestRequest) (*rpb.HandleJoinRequestResponse, error) {
   log.Printf(":CreateAccount: Received data=%v", req)
   resp := &rpb.HandleJoinRequestResponse{}
@@ -602,7 +613,6 @@ func (r *roomzApiService) HandleJoinRequest(ctx context.Context, req *rpb.Handle
 
   var room models.Room
   var err error
-  // TODO: temp hack
   roomIdStr := fmt.Sprintf("%v", roomId)
   userIdToHandleStr := fmt.Sprintf("%v", userIdToHandle)
   if room, err = r.RDB.GetRoom(tx, roomIdStr); err == gorm.ErrRecordNotFound {
@@ -620,8 +630,7 @@ func (r *roomzApiService) HandleJoinRequest(ctx context.Context, req *rpb.Handle
     roomChatHistory := r.RDB.GetRoomChatMessages(tx, roomIdStr)
     log.Printf(":HandleJoinRequest: retrieved chatroom history=%v", roomChatHistory)
 
-    // TODO: make function both JoinRoom() and GetJoinRequests() use here.
-    // check if user exists anymore
+    // Verify this user still exists.
     var user models.User
     if user, err = r.RDB.GetUser(tx, userIdToHandleStr); err == gorm.ErrRecordNotFound {
       return nil, status.Error(codes.Internal, "User no longer exists!")
@@ -636,7 +645,7 @@ func (r *roomzApiService) HandleJoinRequest(ctx context.Context, req *rpb.Handle
     r.RDB.CreateRoomUser(tx, &newRoomUser)
     log.Printf(":handleJoinRequest: Created new RoomUser=%v", newRoomUser)
 
-    // create activity message
+    // Log new ActivityMessage if user is joining the room.
     activityMessageString := fmt.Sprintf("%v has joined the room", newRoomUser)
     activityMessage := models.Message{
       RoomId:        room.Id,
@@ -669,14 +678,14 @@ func (r *roomzApiService) HandleJoinRequest(ctx context.Context, req *rpb.Handle
       Status:  "reject",
     }
   }
-  // delete remnant RoomJoinRequest
+  // No matter the decision, delete the RoomJoinRequest.
   if tx != nil {
     tx.Delete(&roomJoinRequest)
     tx.Commit()
   } else if r.RDB.Testmode {
     r.RDB.DeleteRoomJoinRequest(&roomJoinRequest)
   }
-  // emit response to RoomJoinChannel
+  // Send response on the JoinRoom channel.
   joinKey := fmt.Sprintf("%v-%v", roomId, userIdToHandle)
   r.joinStreamsMtx.Lock()
   joinChannel := r.RoomJoinStreams[joinKey]
@@ -685,10 +694,8 @@ func (r *roomzApiService) HandleJoinRequest(ctx context.Context, req *rpb.Handle
   go func() { joinChannel <- joinRoomResp }()
 
   if joinRoomResp.GetSuccess() {
-    // TODO: send fresh emit getJoinRequests event to host
     log.Printf(":HandleJoinRequest: sending message to host...")
   }
-
   resp = &rpb.HandleJoinRequestResponse{
     Success: joinRoomResp.GetSuccess(),
     ErrorMessage: joinRoomResp.GetErrorMessage(),
@@ -696,6 +703,8 @@ func (r *roomzApiService) HandleJoinRequest(ctx context.Context, req *rpb.Handle
   return resp, nil
 }
 
+
+// CancelJoinRequest deletes a user's RoomJoinRequest.
 func (r *roomzApiService) CancelJoinRequest(ctx context.Context, req *rpb.CancelJoinRequestRequest) (*rpb.CancelJoinRequestResponse, error) {
   log.Printf(":CreateAccount: Received data=%v", req)
   resp := &rpb.CancelJoinRequestResponse{}
@@ -722,11 +731,12 @@ func (r *roomzApiService) CancelJoinRequest(ctx context.Context, req *rpb.Cancel
   log.Printf(":CancelJoinRequest: Delete join request successfully")
   resp.Success = true
   commitTx(tx)
-
-  // TODO: send live event to host that there's a cancel coming in (not necessary)
   return resp, nil
 }
 
+
+// UpdateSessionId is not implemented. This is a socket.io concept.
+// TODO: Delete.
 func (r *roomzApiService) UpdateSessionId(ctx context.Context, req *rpb.UpdateSessionIdRequest) (*rpb.UpdateSessionIdResponse, error) {
   log.Printf(":CreateAccount: Received data=%v", req)
   // TODO: this is only necessary to build out when we start working with the FE
@@ -736,7 +746,7 @@ func (r *roomzApiService) UpdateSessionId(ctx context.Context, req *rpb.UpdateSe
   }, nil
 }
 
-// end of public api
+// End of public api.
 
 func (r *roomzApiService) deleteUserRoomStreams(roomId, userId uint32) {
   log.Printf(":deleteUserRoomStreams:")
@@ -766,12 +776,12 @@ func (r *roomzApiService) deleteUserRoomStreams(roomId, userId uint32) {
 func (r *roomzApiService) deleteRoomStreams(roomId uint32) {
   log.Printf(":deleteRoomStreams:")
 
-  // delete chat streams
+  // Delete chat streams.
   r.chatStreamsMtx.Lock()
   delete(r.RoomChatStreams, roomId)
   r.chatStreamsMtx.Unlock()
 
-  // delete room closure streams
+  // Delete room closure streams.
   r.closeStreamsMtx.Lock()
   delete(r.RoomCloseStreams, roomId)
   r.closeStreamsMtx.Unlock()

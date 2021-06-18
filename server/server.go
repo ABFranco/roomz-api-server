@@ -1,3 +1,4 @@
+// The server package implements a gRPC RoomzApiService server.
 package server
 
 import (
@@ -45,7 +46,7 @@ type roomzApiService struct {
 }
 
 func NewRoomzApiServer() *grpc.Server {
-  // initialize database
+  // Initialize the database.
   var err error
   user     := os.Getenv("ROOMZ_DB_USER")
   password := os.Getenv("ROOMZ_DB_PASSWORD")
@@ -58,7 +59,7 @@ func NewRoomzApiServer() *grpc.Server {
     panic(err)
   }
 
-  // check for "test" mode
+  // Check if running in "test" mode.
   testMode := flag.Bool("test", false, "indicate testmode")
   flag.Parse()
   if *testMode {
@@ -69,7 +70,7 @@ func NewRoomzApiServer() *grpc.Server {
     Testmode: *testMode,
   }
 
-  // initialize gRPC service
+  // Initialize the gRPC service.
   server := grpc.NewServer()
   rpb.RegisterRoomzApiServiceServer(server, &roomzApiService{
     RDB: roomzDB,
