@@ -137,6 +137,12 @@ func (r *roomzApiService) EditAccountEmail(ctx context.Context, req *rpb.EditAcc
     rollbackTx(tx)
     return nil, status.Error(codes.Unauthenticated, "New email must be nonempty.")
   }
+  // check if "new" email is already in use
+  _, res := r.RDB.GetAccount(tx, req.NewEmail)
+  if res != gorm.ErrRecordNotFound {
+    rollbackTx(tx)
+    return nil, status.Error(codes.Internal, "New email invalid. An account already exists with this email!")
+  }
   err := r.RDB.EditAccountEmail(tx, req.OldEmail, req.NewEmail)
   if err == gorm.ErrRecordNotFound {
     rollbackTx(tx)
