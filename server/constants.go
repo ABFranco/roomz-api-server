@@ -1,6 +1,7 @@
+// This file hosts all common constants in the server package.
 package server
 
-// message types
+// Message types.
 const (
   chatroomMessageTypeId = 1
   activityMessageTypeId = 2
