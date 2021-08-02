@@ -26,6 +26,18 @@ cd test
 go test -v
 ```
 
+## Database Initialization/Migration
+
+To initialize a fresh database:
+```
+go run main.go -init
+```
+
+If there are new schema changes (edits to `models.go`), migrate the database to reflect these:
+```
+go run main.go -migrate
+```
+
 ## Potential Issues
 If the server does not shut down correctly, it could still be running on port 5000 and you'll need to kill that process. Add this to your bashrc:
 ```

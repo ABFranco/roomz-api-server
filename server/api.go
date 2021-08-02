@@ -529,7 +529,7 @@ func (r *roomzApiService) EnterChatRoom(req *rpb.EnterChatRoomRequest, chatStrea
 // SendChatMessage creates a new Message object which is sent on the Room chat
 // channel.
 func (r *roomzApiService) SendChatMessage(ctx context.Context, req *rpb.ChatMessage) (*rpb.SendChatMessageResponse, error) {
-  log.Printf(":CreateAccount: Received data=%v", req)
+  log.Printf(":SendChatMessage: Received data=%v", req)
   resp := &rpb.SendChatMessageResponse{}
   tx := r.RDB.Begin()
 
