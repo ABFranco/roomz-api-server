@@ -8,6 +8,7 @@ import (
   "os"
 
   rpb "github.com/ABFranco/roomz-proto/go_proto"
+  "github.com/ABFranco/roomz-api-server/migration"
   "github.com/ABFranco/roomz-api-server/models"
   "google.golang.org/grpc"
   "gorm.io/driver/postgres"
@@ -18,6 +19,12 @@ const (
   host     = "localhost"
   port     = 5432
   dbname   = "roomz"
+)
+
+var (
+  testMode = flag.Bool("test", false, "indicate running the RAS in test mode.")
+  dbInit = flag.Bool("init", false, "initialize the Postgres DB")
+  dbMigrate = flag.Bool("migrate", false, "migrate the Postgres DB")
 )
 
 type roomUserChatChannel struct {
@@ -59,9 +66,15 @@ func NewRoomzApiServer() *grpc.Server {
     panic(err)
   }
 
-  // Check if running in "test" mode.
-  testMode := flag.Bool("test", false, "indicate testmode")
   flag.Parse()
+  if *dbInit {
+    migration.Init(db)
+    return nil
+  }
+  if *dbMigrate {
+    migration.Migrate(db)
+    return nil
+  }
   if *testMode {
     fmt.Printf("Running test mode!!\n")
   }
